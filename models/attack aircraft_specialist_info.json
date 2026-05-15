@@ -1,0 +1,14 @@
+{
+  "superclass": "Attack Aircraft",
+  "aircraft_models": [
+    "A10",
+    "AV8B",
+    "EMB314",
+    "JH7",
+    "Su24",
+    "Su25",
+    "Su34"
+  ],
+  "num_classes": 7,
+  "model_path": "models/attack aircraft_specialist.pt"
+}

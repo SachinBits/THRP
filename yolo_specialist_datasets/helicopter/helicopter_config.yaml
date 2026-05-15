@@ -1,0 +1,19 @@
+names:
+  0: AH64
+  1: CH47
+  2: CH53
+  3: Ka27
+  4: Ka52
+  5: Mi24
+  6: Mi26
+  7: Mi28
+  8: Mi8
+  9: NH90
+  10: UH60
+  11: WZ10
+  12: Z10
+  13: Z19
+nc: 14
+path: yolo_specialist_datasets/helicopter
+train: images/train
+val: images/val

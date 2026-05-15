@@ -1,0 +1,53 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Large Model Files (>5MB) - Download separately
+models/*.pt
+*.pt
+
+# Training Data & Dataset Directories
+dataset/
+datasets/
+yolo_generalist_dataset/images/
+yolo_generalist_dataset/labels/
+yolo_specialist_datasets/*/images/
+yolo_specialist_datasets/*/labels/
+
+# Test Images
+test/
+*.jpg
+*.png
+*.jpeg
+
+# Training Outputs & Logs
+outputs/
+runs/
+logs/
+*.log
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary Files
+*.tmp
+*.temp
+.pytest_cache/

@@ -1,0 +1,21 @@
+{
+  "superclass": "Helicopter",
+  "aircraft_models": [
+    "AH64",
+    "CH47",
+    "CH53",
+    "Ka27",
+    "Ka52",
+    "Mi24",
+    "Mi26",
+    "Mi28",
+    "Mi8",
+    "NH90",
+    "UH60",
+    "WZ10",
+    "Z10",
+    "Z19"
+  ],
+  "num_classes": 14,
+  "model_path": "models/helicopter_specialist.pt"
+}

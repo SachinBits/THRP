@@ -1,0 +1,7 @@
+names:
+  0: V22
+  1: V280
+nc: 2
+path: yolo_specialist_datasets/tiltrotor
+train: images/train
+val: images/val

@@ -1,0 +1,25 @@
+{
+  "model_type": "Generalist (Stage 1) - Kaggle Dataset",
+  "base_model": "YOLOv8n",
+  "superclasses": [
+    "Fighter",
+    "Cargo",
+    "Attack Aircraft",
+    "Tiltrotor",
+    "Bomber",
+    "Helicopter",
+    "Recon / Patrol",
+    "Reconnaissance",
+    "Interceptor",
+    "Multirole Combat",
+    "AEW&C",
+    "Tanker",
+    "Amphibious Aircraft",
+    "Drone",
+    "Prototype Aircraft"
+  ],
+  "epochs": 5,
+  "batch_size": 32,
+  "device": "mps",
+  "model_path": "models/generalist_model.pt"
+}

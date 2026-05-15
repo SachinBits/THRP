@@ -1,0 +1,27 @@
+names:
+  0: EF2000
+  1: F14
+  2: F15
+  3: F16
+  4: F18
+  5: F2
+  6: F22
+  7: F35
+  8: F4
+  9: FCK1
+  10: J10
+  11: J20
+  12: J35
+  13: JAS39
+  14: JF17
+  15: KAAN
+  16: KF21
+  17: Mig29
+  18: Mirage2000
+  19: Rafale
+  20: Su57
+  21: Tejas
+nc: 22
+path: yolo_specialist_datasets/fighter
+train: images/train
+val: images/val

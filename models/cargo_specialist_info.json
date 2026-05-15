@@ -1,0 +1,20 @@
+{
+  "superclass": "Cargo",
+  "aircraft_models": [
+    "A400M",
+    "An124",
+    "An22",
+    "An225",
+    "An72",
+    "C1",
+    "C130",
+    "C17",
+    "C2",
+    "C390",
+    "C5",
+    "Il76",
+    "Y20"
+  ],
+  "num_classes": 13,
+  "model_path": "models/cargo_specialist.pt"
+}

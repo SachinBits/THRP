@@ -1,0 +1,14 @@
+names:
+  0: B1
+  1: B2
+  2: B21
+  3: B52
+  4: H6
+  5: Tu160
+  6: Tu22M
+  7: Tu95
+  8: Vulcan
+nc: 9
+path: yolo_specialist_datasets/bomber
+train: images/train
+val: images/val

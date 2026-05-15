@@ -1,0 +1,21 @@
+## Use flexible PyTorch specs so pip can pick a compatible wheel on macOS
+# If you have a GPU or need a specific build, install torch following
+# https://pytorch.org/get-started/locally/ and then run `pip install -r requirements.txt --no-deps`
+## Allow newer torchvision wheels on macOS (compatible with torch 2.x)
+# Allow newer pandas wheels for Python 3.13 on macOS
+## Prefer newer prebuilt wheels for Python 3.13 on macOS
+torch>=2.12.0,<3.0
+# torchvision 0.27+ provides wheels for cp313 on macOS
+torchvision>=0.27.0,<0.30
+# Allow newer ultralytics releases that support newer Pythons
+ultralytics>=8.0.100,<9.0
+# OpenCV abi3 wheel
+opencv-python>=4.8.0.74,<5.0
+# pandas, numpy, scipy ranges that commonly have cp313 wheels on macOS
+pandas>=2.0.2,<3.0
+numpy>=1.24.3,<1.27
+scipy>=1.11.1,<1.15
+pyyaml>=6.0,<7.0
+Pillow>=10.0.0,<11.0
+matplotlib>=3.7.1,<4.0
+tqdm>=4.65.0,<5.0

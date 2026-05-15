@@ -1,0 +1,16 @@
+{
+  "superclass": "Bomber",
+  "aircraft_models": [
+    "B1",
+    "B2",
+    "B21",
+    "B52",
+    "H6",
+    "Tu160",
+    "Tu22M",
+    "Tu95",
+    "Vulcan"
+  ],
+  "num_classes": 9,
+  "model_path": "models/bomber_specialist.pt"
+}

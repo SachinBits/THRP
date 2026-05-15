@@ -1,0 +1,9 @@
+{
+  "superclass": "Tiltrotor",
+  "aircraft_models": [
+    "V22",
+    "V280"
+  ],
+  "num_classes": 2,
+  "model_path": "models/tiltrotor_specialist.pt"
+}

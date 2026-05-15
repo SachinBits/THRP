@@ -1,0 +1,12 @@
+names:
+  0: A10
+  1: AV8B
+  2: EMB314
+  3: JH7
+  4: Su24
+  5: Su25
+  6: Su34
+nc: 7
+path: yolo_specialist_datasets/attack aircraft
+train: images/train
+val: images/val

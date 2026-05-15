@@ -1,0 +1,29 @@
+{
+  "superclass": "Fighter",
+  "aircraft_models": [
+    "EF2000",
+    "F14",
+    "F15",
+    "F16",
+    "F18",
+    "F2",
+    "F22",
+    "F35",
+    "F4",
+    "FCK1",
+    "J10",
+    "J20",
+    "J35",
+    "JAS39",
+    "JF17",
+    "KAAN",
+    "KF21",
+    "Mig29",
+    "Mirage2000",
+    "Rafale",
+    "Su57",
+    "Tejas"
+  ],
+  "num_classes": 22,
+  "model_path": "models/fighter_specialist.pt"
+}

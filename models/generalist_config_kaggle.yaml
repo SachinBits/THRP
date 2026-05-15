@@ -1,0 +1,20 @@
+names:
+- Fighter
+- Cargo
+- Attack Aircraft
+- Tiltrotor
+- Bomber
+- Helicopter
+- Recon / Patrol
+- Reconnaissance
+- Interceptor
+- Multirole Combat
+- AEW&C
+- Tanker
+- Amphibious Aircraft
+- Drone
+- Prototype Aircraft
+nc: 15
+path: yolo_generalist_dataset
+train: images/train
+val: images/val
