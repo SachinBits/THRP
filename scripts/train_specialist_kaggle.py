@@ -3,6 +3,7 @@ import os, json, logging, time
 from pathlib import Path
 from typing import Dict, List
 import yaml, shutil
+import cv2, random
 import subprocess
 import sys
 
@@ -22,7 +23,7 @@ class KaggleSpecialistTrainer:
     """Trains specialized models for each SuperClass"""
     AIRCRAFT_BY_SUPERCLASS = build_superclass_lists()
     
-    def __init__(self, dataset_root: str, output_dir: str = "models"):
+    def __init__(self, dataset_root: str, output_dir: str = "models", synth_augment: bool = False):
         candidate_roots = [Path(dataset_root)]
         script_root = Path(__file__).resolve().parent.parent
         candidate_roots.append(script_root / dataset_root)
@@ -31,6 +32,7 @@ class KaggleSpecialistTrainer:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.yolo_specialist_base = self.output_dir.parent / "yolo_specialist_datasets"
+        self.synth_augment = synth_augment
         self._ensure_hierarchical_source()
 
     @staticmethod
@@ -120,7 +122,37 @@ class KaggleSpecialistTrainer:
             if src_imgs.exists():
                 for img in sorted(src_imgs.glob("*.jpg")):
                     try:
+                        # copy original
                         shutil.copy2(img, img_dir / img.name)
+
+                        # optionally create lightweight synthetic augmentations for train split
+                        if split == 'train' and self.synth_augment:
+                            # with modest probability, add one blurred and/or low-res variant
+                            p = 0.25
+                            lbl_src = src_labels / (img.stem + '.txt')
+                            if random.random() < p:
+                                try:
+                                    im = cv2.imread(str(img))
+                                    if im is not None:
+                                        # Gaussian blur variant
+                                        b_im = cv2.GaussianBlur(im, (7,7), 0)
+                                        out_name = img.stem + '_blur.jpg'
+                                        cv2.imwrite(str(img_dir / out_name), b_im)
+                                        # copy label
+                                        if lbl_src.exists():
+                                            shutil.copy2(lbl_src, label_dir / (out_name.replace('.jpg', '.txt')))
+
+                                        # low-res downscale-upscale variant
+                                        h,w = im.shape[:2]
+                                        nw, nh = max(1, int(w*0.6)), max(1, int(h*0.6))
+                                        small = cv2.resize(im, (nw, nh), interpolation=cv2.INTER_AREA)
+                                        lr = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+                                        out_name2 = img.stem + '_lowres.jpg'
+                                        cv2.imwrite(str(img_dir / out_name2), lr)
+                                        if lbl_src.exists():
+                                            shutil.copy2(lbl_src, label_dir / (out_name2.replace('.jpg', '.txt')))
+                                except Exception:
+                                    pass
                     except:
                         pass
             
@@ -217,6 +249,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="dataset")
     parser.add_argument("--output", default="./models")
+    parser.add_argument("--synth-aug", action="store_true", help="Enable lightweight synthetic train-time augmentations (blur/lowres)")
     parser.add_argument("--superclass", default=None)
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--epochs", type=int, default=50)
@@ -226,7 +259,7 @@ def main():
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     
-    trainer = KaggleSpecialistTrainer(args.dataset, args.output)
+    trainer = KaggleSpecialistTrainer(args.dataset, args.output, synth_augment=args.synth_aug)
     
     if args.all or args.superclass is None:
         trainer.train_all(args.epochs, args.batch_size, args.device, args.imgsz, args.augment)

@@ -24,6 +24,12 @@ class THRPInferencePipeline:
     SUPERCLASSES = list(AIRCRAFT_BY_SUPERCLASS.keys())
     
     def __init__(self, generalist_model_path: str, specialist_models_dir: str):
+        self.enhance_roi = False
+        self.enhance_generalist = False
+        self._last_image_for_specialist: Optional[np.ndarray] = None
+        self.output_base: Optional[Path] = None
+        self._enhanced_dir: Optional[Path] = None
+        self._roi_save_idx = 0
         logger.info("Initializing THRP Pipeline...")
         self.gen_model_path = Path(generalist_model_path)
         self.spec_models_dir = Path(specialist_models_dir)
@@ -64,8 +70,28 @@ class THRPInferencePipeline:
         """Stage 1: Detect SuperClass"""
         if self.generalist_model is None:
             return {"success": False, "detections": [], "error": "Model not loaded"}
-        
-        results = self.generalist_model.predict(image, conf=0.1, verbose=False)
+        img = image
+        if self.enhance_generalist:
+            try:
+                img = self._enhance_image(image)
+            except Exception:
+                img = image
+
+        # store the image that will be used to crop ROIs for specialists
+        try:
+            self._last_image_for_specialist = img.copy()
+        except Exception:
+            self._last_image_for_specialist = img
+
+        # Save enhanced full image if requested
+        try:
+            if self.enhance_generalist and self._enhanced_dir is not None:
+                out_path = self._enhanced_dir / "enhanced_full.jpg"
+                cv2.imwrite(str(out_path), self._last_image_for_specialist)
+        except Exception:
+            pass
+
+        results = self.generalist_model.predict(img, conf=0.1, verbose=False)
         detections = []
         
         for result in results:
@@ -110,6 +136,26 @@ class THRPInferencePipeline:
         logger.debug(f"  Padded to square: {side}x{side}")
 
         # Use square ROI for specialist prediction
+        orig_square = square_roi.copy()
+        if self.enhance_roi:
+            try:
+                square_roi = self._enhance_roi(square_roi)
+            except Exception:
+                square_roi = orig_square
+
+        # Save ROI images if directory configured
+        try:
+            if self._enhanced_dir is not None:
+                idx = self._roi_save_idx
+                orig_path = self._enhanced_dir / f"roi_{idx}_{superclass}_orig.jpg"
+                cv2.imwrite(str(orig_path), orig_square)
+                if self.enhance_roi:
+                    enh_path = self._enhanced_dir / f"roi_{idx}_{superclass}_enhanced.jpg"
+                    cv2.imwrite(str(enh_path), square_roi)
+                self._roi_save_idx += 1
+        except Exception:
+            pass
+
         if superclass not in self.specialist_models:
             return {"aircraft_model": f"{superclass} (Unknown)", "confidence": 0.0}
 
@@ -138,6 +184,57 @@ class THRPInferencePipeline:
             "aircraft_model": self._format_aircraft_name(best_aircraft) if best_aircraft else f"{superclass} (Unknown)",
             "confidence": best_conf if best_aircraft else 0.0
         }
+
+    def _enhance_roi(self, roi: np.ndarray) -> np.ndarray:
+        """Apply lightweight enhancement: CLAHE on L channel + unsharp mask + mild upscaling."""
+        try:
+            img = roi.copy()
+            # ensure color
+            if len(img.shape) == 2 or img.shape[2] == 1:
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+            # CLAHE on L channel
+            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            cl = clahe.apply(l)
+            merged = cv2.merge((cl,a,b))
+            img = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+
+            # Unsharp mask (light)
+            blur = cv2.GaussianBlur(img, (0,0), 3)
+            img = cv2.addWeighted(img, 1.4, blur, -0.4, 0)
+
+            # mild upscaling if small
+            h,w = img.shape[:2]
+            if max(h,w) < 768:
+                scale = 768 / max(h,w)
+                new_w, new_h = int(w*scale), int(h*scale)
+                img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+            return img
+        except Exception:
+            return roi
+
+    def _enhance_image(self, img: np.ndarray) -> np.ndarray:
+        """Apply lightweight enhancement to full image (CLAHE + mild unsharp)."""
+        try:
+            out = img.copy()
+            if len(out.shape) == 2 or out.shape[2] == 1:
+                out = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
+
+            lab = cv2.cvtColor(out, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=1.8, tileGridSize=(8,8))
+            cl = clahe.apply(l)
+            merged = cv2.merge((cl, a, b))
+            out = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+
+            blur = cv2.GaussianBlur(out, (0,0), 1)
+            out = cv2.addWeighted(out, 1.2, blur, -0.2, 0)
+            return out
+        except Exception:
+            return img
     
     def process_image(self, image_path: str, keep_all_detections: bool = False) -> Dict[str, Any]:
         """Process image through pipeline"""
@@ -147,7 +244,17 @@ class THRPInferencePipeline:
         
         logger.info(f"Processing: {image_path}")
         
-        # Stage 1
+        # clear any previous enhanced image and prepare timestamped folder
+        self._last_image_for_specialist = None
+        self._roi_save_idx = 0
+        if self.output_base is not None:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self._enhanced_dir = self.output_base / f"enhanced_{ts}"
+            try:
+                self._enhanced_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                self._enhanced_dir = None
+
         stage1 = self.detect_superclass(image)
         if not stage1["success"]:
             return {"success": False, "error": "No detections"}
@@ -155,7 +262,9 @@ class THRPInferencePipeline:
         # Stage 2
         results = []
         for det in stage1["detections"]:
-            stage2 = self.identify_aircraft(image, det["bbox"], det["superclass"])
+            # prefer using the enhanced image (if set) for specialist cropping
+            img_for_spec = self._last_image_for_specialist if self._last_image_for_specialist is not None else image
+            stage2 = self.identify_aircraft(img_for_spec, det["bbox"], det["superclass"])
             combined_score = det["confidence"] * stage2["confidence"]
             results.append({
                 "superclass": det["superclass"],
@@ -243,10 +352,15 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="/Users/sachin/Documents/Bits Pilani/DM_Project_v2/THRP/outputs")
     parser.add_argument("--visualize", action="store_true", help="Save visualization of the results")
     parser.add_argument("--all-detections", action="store_true", help="Show all detections instead of the best-ranked one")
+    parser.add_argument("--enhance-roi", action="store_true", help="Apply lightweight ROI enhancement before specialist prediction")
+    parser.add_argument("--enhance-generalist", action="store_true", help="Apply lightweight enhancement to full image before generalist detection")
     args = parser.parse_args()
     
     Path(args.output).mkdir(parents=True, exist_ok=True)
     pipeline = THRPInferencePipeline(args.generalist, args.specialists)
+    pipeline.enhance_roi = bool(args.enhance_roi)
+    pipeline.enhance_generalist = bool(args.enhance_generalist)
+    pipeline.output_base = Path(args.output)
     results = pipeline.process_image(args.image, keep_all_detections=args.all_detections)
     
     print("\n" + "="*70)
