@@ -15,6 +15,7 @@ except ImportError:
 
 from aircraft_superclass_map import SUPERCLASS_ORDER, build_superclass_lists, resolve_device
 from convert_kaggle_csv_to_hierarchy import main as build_hierarchy
+from aircraft_preprocessing import AircraftDegradationAugmentor
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -62,7 +63,18 @@ class KaggleSpecialistTrainer:
         val_labels_dir = specialist_dir / "labels" / "val"
 
         if specialist_dir.exists():
-            shutil.rmtree(specialist_dir)
+            try:
+                shutil.rmtree(specialist_dir)
+            except OSError:
+                # Best-effort cleanup on macOS when a previous run left files open.
+                for child in list(specialist_dir.iterdir()):
+                    try:
+                        if child.is_dir():
+                            shutil.rmtree(child)
+                        else:
+                            child.unlink()
+                    except Exception:
+                        pass
         
         for d in [train_dir, val_dir, train_labels_dir, val_labels_dir]:
             d.mkdir(parents=True, exist_ok=True)
@@ -89,91 +101,151 @@ class KaggleSpecialistTrainer:
                            aircraft_list: List[str], split: str):
         """Flatten specialist dataset"""
         total = 0
-        sc_path = self.dataset_root / sc / split
+        # Support both hierarchical and flat layouts.
+        candidate_roots = [
+            self.dataset_root / sc / split,
+            self.dataset_root / sc.lower() / split,
+            self.dataset_root / sc / "images" / split,
+            self.dataset_root / sc.lower() / "images" / split,
+        ]
+        sc_path = next((path for path in candidate_roots if path.exists()), None)
 
-        if not sc_path.exists():
-            # Try common alternative split names (e.g., 'validation' instead of 'val')
+        if sc_path is None:
             alternatives = ["validation", "valid", "test", "training"]
-            found = False
             for alt in alternatives:
-                alt_path = self.dataset_root / sc / alt
-                if alt_path.exists():
-                    logger.info(f"Using alternative split '{alt}' for {sc}: {alt_path}")
-                    sc_path = alt_path
-                    found = True
+                for base in [self.dataset_root / sc, self.dataset_root / sc.lower(), self.dataset_root / sc / "images", self.dataset_root / sc.lower() / "images"]:
+                    alt_path = base / alt
+                    if alt_path.exists():
+                        logger.info(f"Using alternative split '{alt}' for {sc}: {alt_path}")
+                        sc_path = alt_path
+                        break
+                if sc_path is not None:
                     break
 
-            if not found:
-                logger.warning(f"Split not found: {sc_path}")
-                return
+        if sc_path is None:
+            logger.warning(f"Split not found for superclass '{sc}' under {self.dataset_root}")
+            return
+
+        # Flat layout: images are directly under the split folder.
+        flat_images = list(sc_path.glob("*.jpg")) + list(sc_path.glob("*.jpeg")) + list(sc_path.glob("*.png"))
+        if flat_images:
+            label_dirs = [
+                self.dataset_root / sc / "labels" / split,
+                self.dataset_root / sc.lower() / "labels" / split,
+                self.dataset_root / sc / "labels",
+                self.dataset_root / sc.lower() / "labels",
+            ]
+            src_label_dir = next((p for p in label_dirs if p.exists()), None)
+
+            for img in sorted(flat_images):
+                try:
+                    shutil.copy2(img, img_dir / img.name)
+                    if split == 'train' and self.synth_augment and src_label_dir is not None:
+                        lbl_src = src_label_dir / (img.stem + '.txt')
+                        try:
+                            im = cv2.imread(str(img))
+                            if im is not None and lbl_src.exists():
+                                variants = AircraftDegradationAugmentor.generate_training_variants(im)
+                                plan = {
+                                    'gaussian_blur': 0.22,
+                                    'motion_blur': 0.14,
+                                    'jpeg': 0.16,
+                                    'fog': 0.10,
+                                    'low_light': 0.10,
+                                    'sensor_noise': 0.14,
+                                    'down_up': 0.18,
+                                    'partial_blur': 0.12,
+                                    'atmospheric': 0.08,
+                                }
+                                created = 0
+                                for variant_name, probability in plan.items():
+                                    if created >= 3:
+                                        break
+                                    if random.random() >= probability:
+                                        continue
+                                    out_name = f"{img.stem}_{variant_name}.jpg"
+                                    cv2.imwrite(str(img_dir / out_name), variants[variant_name])
+                                    shutil.copy2(lbl_src, label_dir / out_name.replace('.jpg', '.txt'))
+                                    created += 1
+                        except Exception:
+                            pass
+                    if src_label_dir is not None:
+                        lbl_src = src_label_dir / (img.stem + '.txt')
+                        if lbl_src.exists():
+                            shutil.copy2(lbl_src, label_dir / lbl_src.name)
+                            total += 1
+                except Exception:
+                    pass
+            logger.info(f"    {split}: {total} labels (flat layout)")
+            return
 
         source_dirs = {
             self._normalize_aircraft_name(child.name): child
             for child in sc_path.iterdir()
             if child.is_dir()
         }
-        
+
         for a_idx, aircraft in enumerate(aircraft_list):
             a_dir = source_dirs.get(self._normalize_aircraft_name(aircraft))
             if a_dir is None or not a_dir.exists():
                 continue
-            
+
             src_imgs = a_dir / "images"
+            src_labels = a_dir / "labels"
             if src_imgs.exists():
                 for img in sorted(src_imgs.glob("*.jpg")):
                     try:
-                        # copy original
                         shutil.copy2(img, img_dir / img.name)
 
-                        # optionally create lightweight synthetic augmentations for train split
                         if split == 'train' and self.synth_augment:
-                            # with modest probability, add one blurred and/or low-res variant
-                            p = 0.25
                             lbl_src = src_labels / (img.stem + '.txt')
-                            if random.random() < p:
-                                try:
-                                    im = cv2.imread(str(img))
-                                    if im is not None:
-                                        # Gaussian blur variant
-                                        b_im = cv2.GaussianBlur(im, (7,7), 0)
-                                        out_name = img.stem + '_blur.jpg'
-                                        cv2.imwrite(str(img_dir / out_name), b_im)
-                                        # copy label
-                                        if lbl_src.exists():
-                                            shutil.copy2(lbl_src, label_dir / (out_name.replace('.jpg', '.txt')))
-
-                                        # low-res downscale-upscale variant
-                                        h,w = im.shape[:2]
-                                        nw, nh = max(1, int(w*0.6)), max(1, int(h*0.6))
-                                        small = cv2.resize(im, (nw, nh), interpolation=cv2.INTER_AREA)
-                                        lr = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
-                                        out_name2 = img.stem + '_lowres.jpg'
-                                        cv2.imwrite(str(img_dir / out_name2), lr)
-                                        if lbl_src.exists():
-                                            shutil.copy2(lbl_src, label_dir / (out_name2.replace('.jpg', '.txt')))
-                                except Exception:
-                                    pass
-                    except:
+                            try:
+                                im = cv2.imread(str(img))
+                                if im is not None and lbl_src.exists():
+                                    variants = AircraftDegradationAugmentor.generate_training_variants(im)
+                                    plan = {
+                                        'gaussian_blur': 0.22,
+                                        'motion_blur': 0.14,
+                                        'jpeg': 0.16,
+                                        'fog': 0.10,
+                                        'low_light': 0.10,
+                                        'sensor_noise': 0.14,
+                                        'down_up': 0.18,
+                                        'partial_blur': 0.12,
+                                        'atmospheric': 0.08,
+                                    }
+                                    created = 0
+                                    for variant_name, probability in plan.items():
+                                        if created >= 3:
+                                            break
+                                        if random.random() >= probability:
+                                            continue
+                                        out_name = f"{img.stem}_{variant_name}.jpg"
+                                        cv2.imwrite(str(img_dir / out_name), variants[variant_name])
+                                        shutil.copy2(lbl_src, label_dir / out_name.replace('.jpg', '.txt'))
+                                        created += 1
+                            except Exception:
+                                pass
+                    except Exception:
                         pass
-            
-            src_labels = a_dir / "labels"
+
             if src_labels.exists():
                 for lbl in sorted(src_labels.glob("*.txt")):
                     try:
                         with open(lbl, "r") as f:
                             lines = f.readlines()
-                        
+
                         converted = []
                         for line in lines:
                             parts = line.strip().split()
                             if len(parts) >= 5:
                                 parts[0] = str(a_idx)
                                 converted.append(" ".join(parts) + "\n")
-                        
+
                         with open(label_dir / lbl.name, "w") as f:
                             f.writelines(converted)
                         total += 1
-                    except:
+                    except Exception:
                         pass
         
         logger.info(f"    {split}: {total} labels")
@@ -258,7 +330,7 @@ def main():
     parser.add_argument("--augment", action="store_true")
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
-    
+
     trainer = KaggleSpecialistTrainer(args.dataset, args.output, synth_augment=args.synth_aug)
     
     if args.all or args.superclass is None:

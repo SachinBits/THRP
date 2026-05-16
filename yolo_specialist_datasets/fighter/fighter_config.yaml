@@ -22,6 +22,6 @@ names:
   20: Su57
   21: Tejas
 nc: 22
-path: yolo_specialist_datasets/fighter
+path: /Users/sachin/Documents/Bits Pilani/DM_Project_v2/THRP/yolo_specialist_datasets/fighter
 train: images/train
 val: images/val

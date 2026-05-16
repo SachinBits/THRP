@@ -15,6 +15,7 @@ yolo_generalist_dataset/images/
 yolo_generalist_dataset/labels/
 yolo_specialist_datasets/*/images/
 yolo_specialist_datasets/*/labels/
+THRP/yolo_specialist_datasets.zip
 
 # Test Images
 test/

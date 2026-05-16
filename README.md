@@ -281,6 +281,66 @@ results = m.val(data='yolo_specialist_datasets/fighter/fighter_config.yaml')
 PY
 ```
 
+### **Quality-Aware Preprocessing**
+Use `scripts/aircraft_preprocessing.py` and `scripts/preprocess_aircraft_image.py` for conservative enhancement of degraded aircraft images before the generalist detector.
+
+Recommended default settings:
+- `target_long_side=768`
+- `clahe_clip_limit=2.0`
+- `clahe_tile_grid_size=(8, 8)`
+- `blur_var_threshold=100.0`
+- `low_contrast_std_threshold=32.0`
+- `denoise_strength=3.0`
+- `enable_deblur=False` by default
+
+Pipeline order:
+1. Load image
+2. Resize while preserving aspect ratio
+3. Estimate blur and contrast
+4. Mild denoising
+5. CLAHE on LAB lightness channel
+6. Conservative edge-preserving sharpening
+7. Optional lightweight deblurring
+8. Normalize for CNN input
+9. Return both original and enhanced images
+
+Example:
+```bash
+python3 scripts/preprocess_aircraft_image.py \
+  --input test/f14_2.jpg \
+  --output outputs/preprocess_debug \
+  --benchmark
+```
+
+Integration advice:
+- Prefer enhancement **before the generalist** when the full image is blurred, hazy, low-contrast, or downsampled.
+- Use **ROI enhancement after the generalist** for cropped detections if the crop is still weak.
+- Use conditional enhancement if you want maximum speed: enhance only when blur severity or low-contrast severity is high.
+- Keep enhancement conservative so aircraft silhouette and geometry are not hallucinated or distorted.
+
+Benchmarking strategy:
+- Compare top-1 accuracy and per-class mAP50 on a clean validation set and a degraded validation set.
+- Track class confusion for hard classes like F-14, F-16, F-18, MiG-29, and Su-57.
+- Measure preprocessing time per image and keep the average low enough for near real-time use.
+
+Retraining recommendation:
+- Retrain on more epochs **and** on blurred/degraded images. More epochs alone usually overfits the clean distribution.
+- If compute is limited, first add degraded data and train 20-50 extra epochs with the existing specialist.
+- If you can, keep a small blurred validation split to confirm the gain is real.
+
+Training augmentation strategy:
+- Gaussian blur
+- Motion blur
+- JPEG compression
+- Fog/haze
+- Low-light
+- Sensor noise
+- Downsample/upscale artifacts
+- Partial blur
+- Atmospheric distortion
+
+For training, use `--synth-aug` in `scripts/train_specialist_kaggle.py` to generate lightweight synthetic degradations from the existing dataset.
+
 ---
 
 ## ⚙️ System Requirements

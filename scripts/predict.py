@@ -15,6 +15,7 @@ except ImportError:
     exit(1)
 
 from aircraft_superclass_map import AIRCRAFT_TO_SUPERCLASS, build_superclass_lists
+from aircraft_preprocessing import AircraftEnhancementConfig, AircraftPreprocessor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,6 +31,17 @@ class THRPInferencePipeline:
         self.output_base: Optional[Path] = None
         self._enhanced_dir: Optional[Path] = None
         self._roi_save_idx = 0
+        self.preprocessor = AircraftPreprocessor(
+            AircraftEnhancementConfig(
+                target_long_side=768,
+                clahe_clip_limit=2.0,
+                clahe_tile_grid_size=(8, 8),
+                blur_var_threshold=100.0,
+                low_contrast_std_threshold=32.0,
+                denoise_strength=3.0,
+                enable_deblur=False,
+            )
+        )
         logger.info("Initializing THRP Pipeline...")
         self.gen_model_path = Path(generalist_model_path)
         self.spec_models_dir = Path(specialist_models_dir)
@@ -186,53 +198,16 @@ class THRPInferencePipeline:
         }
 
     def _enhance_roi(self, roi: np.ndarray) -> np.ndarray:
-        """Apply lightweight enhancement: CLAHE on L channel + unsharp mask + mild upscaling."""
+        """Apply quality-aware enhancement to a region of interest."""
         try:
-            img = roi.copy()
-            # ensure color
-            if len(img.shape) == 2 or img.shape[2] == 1:
-                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-
-            # CLAHE on L channel
-            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-            l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            cl = clahe.apply(l)
-            merged = cv2.merge((cl,a,b))
-            img = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
-
-            # Unsharp mask (light)
-            blur = cv2.GaussianBlur(img, (0,0), 3)
-            img = cv2.addWeighted(img, 1.4, blur, -0.4, 0)
-
-            # mild upscaling if small
-            h,w = img.shape[:2]
-            if max(h,w) < 768:
-                scale = 768 / max(h,w)
-                new_w, new_h = int(w*scale), int(h*scale)
-                img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-
-            return img
+            return self.preprocessor.enhance_for_roi(roi).enhanced_image
         except Exception:
             return roi
 
     def _enhance_image(self, img: np.ndarray) -> np.ndarray:
-        """Apply lightweight enhancement to full image (CLAHE + mild unsharp)."""
+        """Apply quality-aware enhancement to the full image before generalist detection."""
         try:
-            out = img.copy()
-            if len(out.shape) == 2 or out.shape[2] == 1:
-                out = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
-
-            lab = cv2.cvtColor(out, cv2.COLOR_BGR2LAB)
-            l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=1.8, tileGridSize=(8,8))
-            cl = clahe.apply(l)
-            merged = cv2.merge((cl, a, b))
-            out = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
-
-            blur = cv2.GaussianBlur(out, (0,0), 1)
-            out = cv2.addWeighted(out, 1.2, blur, -0.2, 0)
-            return out
+            return self.preprocessor.enhance_for_generalist(img).enhanced_image
         except Exception:
             return img
     
