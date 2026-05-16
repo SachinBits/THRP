@@ -3,6 +3,8 @@ import os, json, logging, time
 from pathlib import Path
 from typing import Dict, List
 import yaml, shutil
+import subprocess
+import sys
 
 try:
     from ultralytics import YOLO
@@ -11,6 +13,7 @@ except ImportError:
     exit(1)
 
 from aircraft_superclass_map import SUPERCLASS_ORDER, build_superclass_lists, resolve_device
+from convert_kaggle_csv_to_hierarchy import main as build_hierarchy
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -20,10 +23,29 @@ class KaggleSpecialistTrainer:
     AIRCRAFT_BY_SUPERCLASS = build_superclass_lists()
     
     def __init__(self, dataset_root: str, output_dir: str = "models"):
-        self.dataset_root = Path(dataset_root)
+        candidate_roots = [Path(dataset_root)]
+        script_root = Path(__file__).resolve().parent.parent
+        candidate_roots.append(script_root / dataset_root)
+        candidate_roots.append(script_root / "datasets" / "data")
+        self.dataset_root = next((path for path in candidate_roots if path.exists()), Path(dataset_root))
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.yolo_specialist_base = self.output_dir.parent / "yolo_specialist_datasets"
+        self._ensure_hierarchical_source()
+
+    @staticmethod
+    def _normalize_aircraft_name(name: str) -> str:
+        return "".join(ch.lower() for ch in name if ch.isalnum())
+
+    def _ensure_hierarchical_source(self) -> None:
+        """Generate the superclass/aircraft hierarchy from the raw Kaggle export when needed."""
+        csv_path = self.dataset_root / "labels_with_split.csv"
+        raw_images_dir = self.dataset_root / "dataset"
+        fighter_root = self.dataset_root / "Fighter"
+
+        if csv_path.exists() and raw_images_dir.exists() and not fighter_root.exists():
+            logger.info(f"Building hierarchical dataset at {self.dataset_root} from labels_with_split.csv")
+            build_hierarchy(self.dataset_root)
     
     def create_specialist_config(self, sc: str) -> str:
         """Create YOLO config for specialist"""
@@ -82,10 +104,16 @@ class KaggleSpecialistTrainer:
             if not found:
                 logger.warning(f"Split not found: {sc_path}")
                 return
+
+        source_dirs = {
+            self._normalize_aircraft_name(child.name): child
+            for child in sc_path.iterdir()
+            if child.is_dir()
+        }
         
         for a_idx, aircraft in enumerate(aircraft_list):
-            a_dir = sc_path / aircraft
-            if not a_dir.exists():
+            a_dir = source_dirs.get(self._normalize_aircraft_name(aircraft))
+            if a_dir is None or not a_dir.exists():
                 continue
             
             src_imgs = a_dir / "images"
@@ -153,6 +181,12 @@ class KaggleSpecialistTrainer:
             json.dump(info, f, indent=2)
         
         logger.info("="*80 + "\n")
+        # Attempt to save validation metrics (non-fatal)
+        try:
+            subprocess.run([sys.executable, "scripts/save_metrics.py", "--model", str(model_path), "--data", str(config_path)], check=False)
+        except Exception:
+            logger.exception("Failed to run metrics saver")
+
         return info
     
     def train_all(self, epochs=50, batch_size=16, device="cpu", imgsz=640, augment=False):
@@ -181,7 +215,7 @@ class KaggleSpecialistTrainer:
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default="../datasets/data")
+    parser.add_argument("--dataset", default="dataset")
     parser.add_argument("--output", default="./models")
     parser.add_argument("--superclass", default=None)
     parser.add_argument("--all", action="store_true")

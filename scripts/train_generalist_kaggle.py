@@ -3,6 +3,8 @@ import os, json, logging, time
 from pathlib import Path
 from typing import Dict
 import yaml, shutil
+import subprocess
+import sys
 
 try:
     from ultralytics import YOLO
@@ -21,7 +23,11 @@ class KaggleGeneralistTrainer:
     SUPERCLASSES = SUPERCLASS_ORDER
     
     def __init__(self, dataset_root: str, output_dir: str = "models"):
-        self.dataset_root = Path(dataset_root)
+        candidate_roots = [Path(dataset_root)]
+        script_root = Path(__file__).resolve().parent.parent
+        candidate_roots.append(script_root / dataset_root)
+        candidate_roots.append(script_root / "datasets" / "data")
+        self.dataset_root = next((path for path in candidate_roots if path.exists()), Path(dataset_root))
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.config_path = self.output_dir / "generalist_config_kaggle.yaml"
@@ -194,12 +200,18 @@ class KaggleGeneralistTrainer:
         
         logger.info("✓ Training Complete!")
         logger.info("="*80)
+        # Attempt to save validation metrics (non-fatal)
+        try:
+            subprocess.run([sys.executable, "scripts/save_metrics.py", "--model", str(model_path), "--data", str(self.config_path)], check=False)
+        except Exception:
+            logger.exception("Failed to run metrics saver for generalist")
+
         return info
 
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default="../datasets/data")
+    parser.add_argument("--dataset", default="datasets/data")
     parser.add_argument("--output", default="./models")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=16)
