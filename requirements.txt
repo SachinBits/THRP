@@ -13,9 +13,10 @@ ultralytics>=8.0.100,<9.0
 opencv-python>=4.8.0.74,<5.0
 # pandas, numpy, scipy ranges that commonly have cp313 wheels on macOS
 pandas>=2.0.2,<3.0
-numpy>=1.24.3,<1.27
+numpy>=2.1
 scipy>=1.11.1,<1.15
 pyyaml>=6.0,<7.0
 Pillow>=10.0.0,<11.0
 matplotlib>=3.7.1,<4.0
 tqdm>=4.65.0,<5.0
+streamlit>=1.37.0,<2.0

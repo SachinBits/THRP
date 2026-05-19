@@ -52,3 +52,37 @@ Thumbs.db
 *.tmp
 *.temp
 .pytest_cache/
+
+# Checkpoints, serialized models and artifacts
+*.ckpt
+*.pth
+*.h5
+*.onnx
+*.tflite
+
+# Embeddings, features and intermediate artifacts
+results/
+embeddings/
+features/
+report_assets/
+frontend_previews/
+frontend_uploads/
+outputs/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment / secret files
+.env
+env_vars/
+
+# Database / persistent local state
+*.sqlite3
+
+# Package manager
+pip-log.txt
+pip-delete-this-directory.txt
+
+# macOS
+.DS_Store
+

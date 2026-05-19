@@ -1,0 +1,63 @@
+Project Knowledge Base — THRP
+
+Overview
+This document captures the conceptual design, data flow, model architecture choices, training and evaluation logic, results summary, limitations, and reproducibility notes for the THRP aircraft recognition project. It intentionally excludes code excerpts and file lists and focuses on the working principles and reasoning behind each component, enabling readers to understand how the pipeline functions end-to-end and where key decisions were made.
+
+Dataset and Preprocessing
+- Data composition: The dataset contains aerial imagery across multiple aircraft superclasses and subclasses. Images include a mixture of bounding-box annotations for object detection and class labels for specialist classification tasks. Data is split into training, validation, and test sets with attention to preserving class balance where possible and holding out rare classes for targeted evaluation.
+- Preprocessing pipeline: Images are standardized (resize/normalize) and augmented during training to improve generalization. Augmentations include geometric transforms (random scale, crop, horizontal flip), color jitter, and mild photometric changes. For the detector, bounding boxes are adjusted accordingly; for the specialist classifiers, crops are extracted around detected boxes and further normalized to the specialist input size.
+- Label handling: The project maps a large set of fine-grained labels to a set of superclasses. This mapping guides two complementary model families: a generalist detector (multi-class detector across all objects) and specialist classifiers (per-superclass or per-group models focusing on finer distinctions). Label noise mitigation strategies include filtering obvious annotation errors and using class-aware sampling during training to reduce the dominance of abundant classes.
+
+Modeling Strategy
+- Two-stage, hybrid approach: The pipeline separates detection from fine-grained classification. Stage 1 uses a generalist detector to find candidate object bounding boxes and coarse labels. Stage 2 routes each candidate to a specialist model tailored to the detected superclass; the specialist performs fine-grained subclass classification and optionally refines bounding boxes.
+- Generalist detector: A single, efficient object detector is trained to produce reliable candidate boxes and high-recall superclass predictions. The detector is optimized for recall at moderate precision so that downstream specialists have high-quality crops to operate on. Detector outputs include bounding box coordinates, detection confidence, and a coarse class/superclass distribution.
+- Specialist classifiers: Specialists are lighter, higher-capacity classifiers trained on crops of detected objects from their target superclass. Specialists focus on intra-superclass variance (visually similar subclasses) and are trained with class-balanced sampling, label smoothing, and targeted augmentations that preserve subclass-discriminative features.
+- Embeddings and downstream baselines: In addition to end-to-end classification, the project extracts intermediate embeddings from model backbones to support alternative classifiers and baselines (e.g., decision trees, nearest-neighbor, or small MLPs). Embeddings are pooled representations capturing semantic features useful for quick experiments and ensembling.
+
+Routing and Ensemble Logic
+- Routing: Each detection from the generalist is routed to the corresponding specialist based on the generalist's superclass prediction. If the generalist is uncertain (e.g., low confidence or high entropy across superclasses), the pipeline can optionally run multiple specialists in parallel or fall back to a conservative decision threshold.
+- Confidence fusion: Final predictions combine the generalist’s confidence and the specialist’s subclass confidence. Fusion strategies include weighted averaging of calibrated probabilities, gating based on specialist confidence, or rule-based overrides when specialist predictions contradict generalist top-k hypotheses.
+- Reject/unknown handling: The system includes mechanisms to detect out-of-distribution or low-confidence cases. When neither the generalist nor specialists produce confident outputs, detections can be flagged for human review or routed to an “unknown” class to avoid overconfident false positives.
+
+Training and Optimization Logic
+- Two-phase specialist training: Specialists are trained with a head-only warmup (training newly added classifier layers) followed by selective fine-tuning of the backbone. This reduces catastrophic forgetting and improves specialization efficiency.
+- Losses and regularization: Cross-entropy is the primary loss for classification; label smoothing, weight decay, and dropout are used to improve generalization. For detector training, localization (e.g., IoU or L1) and classification losses are balanced to maintain detection quality and recall.
+- Class imbalance strategies: The pipeline uses class re-weighting, oversampling of rare classes, and balanced batch formation to mitigate imbalance. When training specialists, datasets are curated per superclass so each specialist sees a controlled distribution aligned to its domain.
+- Hyperparameter considerations: Training schedules include an initial learning rate warmup, cosine or step LR decay, and early stopping based on validation metrics. Batch size, augmentation intensity, and the number of fine-tuning epochs are tuned empirically per specialist and validated on held-out sets.
+
+Evaluation Framework and Metrics
+- Detection metrics: Standard detection metrics such as mean Average Precision (mAP) at relevant IoU thresholds are used to assess the generalist detector’s box quality and class-level detection performance.
+- Classification metrics: For specialists and final pipeline outputs, metrics include accuracy, precision, recall, F1-score, per-class confusion matrices, and top-k accuracy where applicable. Class-wise breakdowns show which subclasses benefit most from specialization.
+- Embedding/baseline evaluation: When using embeddings with classical classifiers (e.g., decision trees), evaluation includes cross-validated accuracy and analysis of feature separability (e.g., t-SNE/UMAP visualizations) to justify their use as lightweight alternatives.
+- End-to-end metrics: The pipeline measures final, operational performance by combining detection and classification errors: correct detection + correct specialist classification constitutes a successful end-to-end prediction. This composite metric is reported alongside component-specific metrics to pinpoint failure modes.
+
+Results Summary (qualitative and structural)
+- Effect of specialists: Across experiments, specialists improve fine-grained subclass discrimination compared to relying solely on the generalist’s class scores. Improvements are most pronounced for subclasses that are visually similar and for classes with moderate representation in training data.
+- Embedding baselines: Embedding-based methods provide quick-to-train baselines that can match or exceed simple end-to-end baselines in low-data regimes. They are particularly useful for fast prototyping and for building hybrid approaches (e.g., embeddings feeding a small decision tree to capture coarse rules).
+- Trade-offs: The hybrid approach increases throughput cost (multiple models) and inference complexity versus a single-model solution. However, it yields improved accuracy on fine-grained labels and provides modularity benefits—specialists can be retrained or replaced independently.
+
+Visualization and Reporting
+- Visual outputs: The pipeline produces visualizations for predictions (bounding boxes with class labels and confidences), per-image and per-class result summaries, and embedding visualizations for diagnostic purposes.
+- Reporting artifacts: The project generates machine-readable metrics files, per-experiment reports, and aggregated summaries suitable for downstream reporting and human review.
+
+Deployment & Frontend Integration Logic
+- Serving logic: For deployment, the recommended pattern is a staged runtime that runs the generalist detector first and then calls specialists only for detections above a configurable threshold. This minimizes unnecessary specialist invocations while preserving accuracy.
+- Latency optimization: Options for deployment include batching crops for specialist inference, model quantization, or distillation to smaller models to reduce latency while preserving specialist discriminative power.
+
+Limitations and Failure Modes
+- Data sparsity: Rare subclasses still incur high error rates and may require targeted collection or synthetic augmentation to reach acceptable performance.
+- Cascaded errors: Failures in the generalist stage (missed detections or wrong superclass routing) propagate to the specialists and are the largest single source of end-to-end errors.
+- Overconfidence: Without careful calibration, fusion strategies can lead to overconfident misclassifications; probability calibration and threshold tuning are essential.
+
+Reproducibility Notes (high-level)
+- Deterministic pipeline: Use fixed seeds for dataset splits, deterministic augmentations where possible, and record exact training hyperparameters and model checkpoints for reproducibility.
+- Experiment logging: Maintain per-run logs including model checkpoints, training/validation metrics, dataset versions, and configuration parameters. Archiving model weights and evaluation artifacts for each experiment ensures results can be validated later.
+- Minimal steps to reproduce results: (1) prepare dataset with the same splits and superclass mappings; (2) train or load the generalist detector; (3) extract crops and train specialists using the documented training schedule; (4) evaluate per-component metrics and run end-to-end evaluation with fusion logic and thresholds used in reported experiments.
+
+Recommended Next Steps and Future Work
+- Data-centric improvements: Increase sample counts for underrepresented subclasses, incorporate active learning for curator-in-the-loop labeling, and explore synthetic augmentation targeted at challenging subclass appearances.
+- Model improvements: Experiment with model compression for specialists, alternative routing strategies (learned routing or neural routers), and uncertainty-aware fusion methods (e.g., Bayesian ensembling or temperature scaling).
+- Operationalization: Add continuous monitoring of model drift, automated retraining triggers when performance degrades, and human-in-the-loop review pipelines for flagged uncertain detections.
+
+Summary
+The THRP pipeline combines a high-recall generalist detector with targeted specialist classifiers and embedding-based baselines to achieve robust fine-grained aircraft recognition. The design prioritizes modularity and reproducibility, balancing performance gains against increased inference complexity. With focused data collection, calibration, and deployment optimizations, the system provides a practical path toward production-grade performance for challenging, fine-grained recognition tasks.
