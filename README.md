@@ -1,402 +1,176 @@
-# THRP: Two-Stage Hierarchical Recognition Pipeline
-## Military Aircraft Detection & Classification
+# THRP — Two-Stage Hierarchical Recognition Pipeline
 
-A production-ready two-stage deep learning pipeline for detecting and classifying military aircraft from images, achieving robust classification even on blurred/degraded imagery.
+Comprehensive README with setup, run and reproduction commands for the THRP project. THRP implements a two-stage object recognition pipeline optimized for fine-grained aircraft classification: a generalist detector proposes bounding boxes and coarse superclasses, then specialist classifiers perform fine-grained subclass recognition on cropped ROIs.
 
-![Status](https://img.shields.io/badge/status-production-brightgreen)
-![Python](https://img.shields.io/badge/python-3.10+-blue)
-![PyTorch](https://img.shields.io/badge/pytorch-2.0+-red)
-![License](https://img.shields.io/badge/license-MIT-green)
+Contents
+- Project summary
+- Requirements
+- Setup and installation
+- Model weights and dataset preparation
+- Full command reference (inference, training, evaluation, embedding extraction, baselines)
+- Project structure
+- Reproducibility and experiment logging
+- Troubleshooting
+- License and contact
 
----
+Project summary
+THRP is designed to improve fine-grained aircraft recognition by dividing the task into detection (generalist) and subclass classification (specialists). This modular design reduces per-model complexity, enables targeted data augmentation and class-balanced training for difficult subclasses, and provides embedding extraction for fast baselines and diagnostics.
 
-## 🎯 Features
+Requirements
+- Python 3.10 or newer
+- pip
+- Optional GPU with CUDA 11.8+ for accelerated training or inference, or Apple MPS on macOS
+- Recommended: 16 GB RAM, 50+ GB disk for datasets and checkpoints
+- Install requirements with:
 
-- **Two-Stage Pipeline**: Generalist (superclass) → Specialist (aircraft-specific) detection
-- **6 Superclasses**: Fighter, Bomber, Cargo, Helicopter, Attack Aircraft, Tiltrotor
-- **22+ Aircraft Types**: F-16, F-18, F-35, J-20, Su-57, A-10, C-130, CH-47, etc.
-- **Robust Inference**: Square-padded ROI preprocessing + combined confidence scoring
-- **Dynamic Model Discovery**: Auto-loads specialist weights from models directory
-- **Augmentation Support**: Motion blur, Gaussian blur, JPEG artifacts for robustness on degraded images
-- **Apple Silicon Optimized**: MPS device support for M1/M2/M3/M4 Macs
-
----
-
-## 📊 Performance
-
-| Stage | Metric | Value |
-|-------|--------|-------|
-| Generalist | mAP@0.5 (6 superclasses) | ~0.85 |
-| Fighter Specialist | mAP@0.5 (22 fighters) | ~0.42 |
-| Overall Pipeline | Correct superclass + aircraft | >80% on clear images |
-
-**Note**: Specialist accuracy varies by aircraft type and training data availability.
-
----
-
-## 🚀 Quick Start
-
-### **1. Clone & Setup**
 ```bash
-git clone https://github.com/<username>/THRP.git
-cd THRP
-
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-### **2. Download Models**
-```bash
-# Download pre-trained weights from releases
-cd models
-wget https://github.com/<username>/THRP/releases/download/v1.0/models.tar.gz
-tar -xzf models.tar.gz
-cd ..
-```
+Model weights and dataset preparation
+- Models: pre-trained generalist and specialist weights are required for inference. Place weights in `models/` or download from project releases.
+- Datasets: specialist datasets live under `yolo_specialist_datasets/` (one folder per superclass with `images/` and `labels/` in YOLO format). The generalist dataset is under `yolo_generalist_dataset/`.
+- If you have large model files or full datasets, keep them off the git repository and use external storage or release assets. The repository `.gitignore` excludes common large artifacts.
 
-### **3. Run Inference**
-```bash
-# Single image
-python3 scripts/predict.py --image path/to/aircraft.jpg --visualize
+Commands — Inference and utilities
 
-# Show all candidate predictions
-python3 scripts/predict.py --image path/to/aircraft.jpg --all-detections
-```
-
-**Sample Output:**
-```
-SuperClass: Fighter (87.3%)
-Aircraft: F-18 (75.2%)
-Combined: 65.6%
-BBox: (100, 50, 400, 300)
-```
-
----
-
-## 📖 Usage
-
-### **Inference**
+- Single-image two-stage inference (annotated output saved):
 
 ```bash
-python3 scripts/predict.py \
-  --image path/to/image.jpg \
-  --visualize                  # Save annotated image
-  --all-detections             # Show all candidates (debug mode)
+python3 scripts/predict.py --image path/to/image.jpg --visualize
 ```
 
-**Output Files:**
-- Annotated image: `outputs/pred_<hash>.jpg`
-- Console output: Superclass, aircraft type, confidence scores
+- Run inference and show all candidate detections (debug):
 
-### **Training**
-
-#### **Train Fighter Specialist (example)**
 ```bash
-python3 scripts/train_specialist_kaggle.py \
-  --superclass Fighter \
-  --epochs 50 \
+python3 scripts/predict.py --image path/to/image.jpg --all-detections
+```
+
+- Run the auto decision-tree predictor (embedding → tree):
+
+```bash
+python3 scripts/predict_auto_decision_tree.py --image path/to/image.jpg
+```
+
+- Batch inference on a folder:
+
+```bash
+python3 scripts/predict.py --input-folder path/to/images --out-dir outputs/predictions
+```
+
+Commands — Training
+
+- Train a specialist (example — Fighter):
+
+```bash
+python3 scripts/finetune_specialists.py \
+  --dataset yolo_specialist_datasets \
+  --superclasses fighter \
+  --out-models models \
+  --out-results results/baselines/cnn \
+  --epochs-head 3 \
+  --epochs-finetune 2 \
   --batch-size 32 \
-  --imgsz 768 \
-  --augment \
-  --device mps
+  --device auto
 ```
 
-#### **Train Generalist**
+- Train the generalist detector:
+
 ```bash
 python3 scripts/train_generalist_kaggle.py \
   --epochs 50 \
   --batch-size 32 \
   --imgsz 640 \
-  --device mps
+  --device auto
 ```
 
-**Training outputs:**
-- Model: `models/<superclass>_specialist.pt`
-- Validation: `runs/detect/val/`
+Commands — Embeddings & baselines
 
----
+- Extract embeddings for specialist datasets:
 
-## 📁 Project Structure
+```bash
+python3 scripts/extract_embeddings.py \
+  --dataset yolo_specialist_datasets \
+  --out results/embeddings \
+  --batch-size 32 \
+  --device auto
+```
+
+- Train simple baselines (decision tree / retrain with embeddings):
+
+```bash
+python3 scripts/run_decision_tree_baseline.py \
+  --dataset yolo_specialist_datasets \
+  --out results/baselines \
+  --superclasses fighter
+
+python3 scripts/retrain_with_embeddings.py --emb results/embeddings --out results/baselines
+```
+
+Commands — Evaluation & reporting
+
+- Run end-to-end ensemble evaluation and collect metrics:
+
+```bash
+python3 scripts/eval_ensemble_fast.py
+```
+
+- Generate comprehensive reports (aggregates and per-class summaries):
+
+```bash
+./generate_report.sh
+```
+
+Commands — Frontend (preview)
+
+- Run the streamlit frontend locally:
+
+```bash
+source .venv/bin/activate
+streamlit run streamlit_app.py
+```
+
+Project structure (high-level)
 
 ```
 THRP/
-├── scripts/
-│   ├── predict.py                       # Two-stage inference pipeline
-│   ├── train_specialist_kaggle.py       # Specialist trainer
-│   ├── train_generalist_kaggle.py       # Generalist trainer
-│   ├── aircraft_superclass_map.py       # Class mapping
-│   └── ...
-├── models/
-│   ├── generalist_model.pt              # Generalist weights (download)
-│   ├── *_specialist.pt                  # Specialist weights (download)
-│   └── *.yaml                           # Training configs
-├── yolo_specialist_datasets/
-│   ├── fighter/
-│   │   ├── fighter_config.yaml
-│   │   ├── images/ (train, val)
-│   │   └── labels/ (train, val)
-│   └── ... (other superclasses)
-├── requirements.txt
-├── setup_env.sh
-└── README.md
+├─ scripts/                      # Inference, training, eval, utilities
+├─ models/                       # Place pretrained weights here (ignored by git)
+├─ yolo_specialist_datasets/     # Specialist datasets (images + labels)
+├─ yolo_generalist_dataset/      # Generalist dataset
+├─ results/                      # Generated metrics, embeddings, baselines
+├─ outputs/                      # Visualizations and report artifacts
+├─ runs/                         # Training run outputs (checkpoints, tensorboard)
+├─ requirements.txt
+├─ README.md
+└─ KNowledge BAse THRP           # Conceptual knowledge base (non-code)
 ```
 
----
+Reproducibility and experiment logging
+- Use deterministic seeds and record the full run config for each experiment. The training scripts accept seed/config args; ensure you record the `models/` checkpoint used and the dataset version.
+- Save per-run artifacts: `runs/` (checkpoints), `results/` (metrics JSON), and `outputs/` (visualizations). Archive or upload large checkpoints separately.
 
-## 🔧 Configuration
+Best practices
+- Keep large checkpoints, datasets, and logs out of git. Use release assets or cloud storage for artifacts.
+- Use the included `.gitignore` to avoid accidentally committing large files.
+- For production deployment, consider model quantization, batching crops for specialists, and conditional routing thresholds to reduce latency.
 
-### **Aircraft Mapping** (`scripts/aircraft_superclass_map.py`)
+Troubleshooting
+- No models loaded: ensure `models/` contains `generalist_model.pt` and `*_specialist.pt` files.
+- Low accuracy on specific class: inspect per-class confusion matrices in `results/` and increase augmentation or collect more examples for that class.
+- OOM during training: reduce `--batch-size`, reduce `--imgsz`, or use CPU mode via `--device cpu`.
 
-Define aircraft-to-superclass relationships:
-```python
-AIRCRAFT_TO_SUPERCLASS = {
-    # Fighter
-    "F16": "Fighter",
-    "F18": "Fighter",
-    "F35": "Fighter",
-    # ... add more
-}
-```
+Contact & Contribution
+- To contribute: open issues or PRs in the project repo; for model/data updates, attach small repro datasets or links to hosted artifacts.
 
-### **Dataset YAML** (`yolo_specialist_datasets/fighter/fighter_config.yaml`)
+License
+- MIT License — see the LICENSE file in the repo.
 
-```yaml
-path: yolo_specialist_datasets/fighter
-train: images/train
-val: images/val
-nc: 22
-names:
-  0: EF2000
-  1: F14
-  # ... rest of classes
-```
+Acknowledgements
+- Uses YOLO/Ultralytics tooling and PyTorch. See `requirements.txt` for full dependency list.
 
-**Key requirements:**
-- Paths are relative to repo root
-- Class indices must match label files
-- Train/val split: 70/30 or 80/20 recommended
-
-### **Training Config** (`models/generalist_config_kaggle.yaml`)
-
-```yaml
-path: yolo_generalist_dataset
-train: images/train
-val: images/val
-nc: 6  # 6 superclasses
-names:
-  0: Fighter
-  1: Bomber
-  2: Cargo
-  3: Helicopter
-  4: Attack Aircraft
-  5: Tiltrotor
-```
-
----
-
-## 📊 Data Format
-
-### **Directory Structure**
-```
-yolo_specialist_datasets/fighter/
-├── images/
-│   ├── train/     # ~70% of images
-│   └── val/       # ~30% of images
-└── labels/
-    ├── train/     # YOLO format labels
-    └── val/
-```
-
-### **Label Format** (YOLO)
-```
-# fighter_001.txt
-15 0.523 0.412 0.256 0.478
-```
-- `class_id`: Integer (0-indexed)
-- `x_center, y_center`: Normalized box center (0-1)
-- `width, height`: Normalized box dimensions (0-1)
-
----
-
-## 🎓 How It Works
-
-### **Stage 1: Generalist Detection**
-1. Input image passed to generalist YOLO model
-2. Detects bounding boxes with superclass labels (Fighter, Bomber, etc.)
-3. Returns all superclass detections with confidence scores
-
-### **Stage 2: Specialist Identification**
-1. For each generalist detection:
-   - Extract ROI (region of interest)
-   - Pad to 512×512 square (preserves aspect ratio)
-   - Pass to superclass-specific specialist model
-   - Detect specific aircraft type (F-16, F-18, etc.)
-
-### **Stage 3: Ranking**
-1. Compute combined score = generalist_conf × specialist_conf
-2. Sort by combined score (descending)
-3. Return top-1 result (or all with `--all-detections`)
-
-**Advantage**: Specialist models are smaller, faster, more accurate than single 1000-class detector.
-
----
-
-## 🔨 Advanced Usage
-
-### **Retrain with Augmentation**
-For improved robustness on blurred images:
-
-```bash
-python3 scripts/train_specialist_kaggle.py \
-  --superclass Fighter \
-  --epochs 100 \
-  --batch-size 16 \
-  --imgsz 768 \
-  --augment           # Motion blur, Gaussian blur, JPEG artifacts
-  --device mps
-```
-
-### **Add New Aircraft**
-1. Update `aircraft_superclass_map.py`:
-   ```python
-   "F18": "Fighter",
-   "NEW_AIRCRAFT": "Fighter"  # Add here
-   ```
-2. Collect training data → `yolo_specialist_datasets/fighter/images/train/`
-3. Label with bounding boxes (YOLO format)
-4. Update `fighter_config.yaml`: increment `nc`, add name mapping
-5. Retrain: `python3 train_specialist_kaggle.py --superclass Fighter --epochs 50`
-
-### **Validate Model**
-```bash
-python3 - <<'PY'
-from ultralytics import YOLO
-m = YOLO('models/fighter_specialist.pt')
-results = m.val(data='yolo_specialist_datasets/fighter/fighter_config.yaml')
-# Shows per-class mAP50, confusion matrix, etc.
-PY
-```
-
-### **Quality-Aware Preprocessing**
-Use `scripts/aircraft_preprocessing.py` and `scripts/preprocess_aircraft_image.py` for conservative enhancement of degraded aircraft images before the generalist detector.
-
-Recommended default settings:
-- `target_long_side=768`
-- `clahe_clip_limit=2.0`
-- `clahe_tile_grid_size=(8, 8)`
-- `blur_var_threshold=100.0`
-- `low_contrast_std_threshold=32.0`
-- `denoise_strength=3.0`
-- `enable_deblur=False` by default
-
-Pipeline order:
-1. Load image
-2. Resize while preserving aspect ratio
-3. Estimate blur and contrast
-4. Mild denoising
-5. CLAHE on LAB lightness channel
-6. Conservative edge-preserving sharpening
-7. Optional lightweight deblurring
-8. Normalize for CNN input
-9. Return both original and enhanced images
-
-Example:
-```bash
-python3 scripts/preprocess_aircraft_image.py \
-  --input test/f14_2.jpg \
-  --output outputs/preprocess_debug \
-  --benchmark
-```
-
-Integration advice:
-- Prefer enhancement **before the generalist** when the full image is blurred, hazy, low-contrast, or downsampled.
-- Use **ROI enhancement after the generalist** for cropped detections if the crop is still weak.
-- Use conditional enhancement if you want maximum speed: enhance only when blur severity or low-contrast severity is high.
-- Keep enhancement conservative so aircraft silhouette and geometry are not hallucinated or distorted.
-
-Benchmarking strategy:
-- Compare top-1 accuracy and per-class mAP50 on a clean validation set and a degraded validation set.
-- Track class confusion for hard classes like F-14, F-16, F-18, MiG-29, and Su-57.
-- Measure preprocessing time per image and keep the average low enough for near real-time use.
-
-Retraining recommendation:
-- Retrain on more epochs **and** on blurred/degraded images. More epochs alone usually overfits the clean distribution.
-- If compute is limited, first add degraded data and train 20-50 extra epochs with the existing specialist.
-- If you can, keep a small blurred validation split to confirm the gain is real.
-
-Training augmentation strategy:
-- Gaussian blur
-- Motion blur
-- JPEG compression
-- Fog/haze
-- Low-light
-- Sensor noise
-- Downsample/upscale artifacts
-- Partial blur
-- Atmospheric distortion
-
-For training, use `--synth-aug` in `scripts/train_specialist_kaggle.py` to generate lightweight synthetic degradations from the existing dataset.
-
----
-
-## ⚙️ System Requirements
-
-- **Python**: 3.10+
-- **RAM**: 8GB+ (16GB recommended)
-- **GPU**: Optional (CUDA 11.8+, MPS for Apple Silicon)
-- **Storage**: 2GB (code + models), 50GB+ (for full training data)
-
-### **Dependencies**
-- ultralytics (8.4.50+)
-- torch (2.0+)
-- torchvision
-- opencv-python
-- numpy
-- PyYAML
-
-See `requirements.txt` for full list.
-
----
-
-## 🐛 Troubleshooting
-
-### **Issue: "No specialist models loaded"**
-- Check `models/` directory has `*_specialist.pt` files
-- Verify naming convention: `{superclass}_specialist.pt`
-- Download models from GitHub releases
-
-### **Issue: Specialist returns "Unknown" with 0% confidence**
-- ROI too small? Pipeline auto-pads to 512×512, should work
-- Model confidence threshold too high? Lowered to 0.01 by default
-- Run with `--all-detections` to see raw predictions
-
-### **Issue: Model accuracy low for specific aircraft**
-- Check class distribution: `python3 -c "import os; print({cls: len(os.listdir(f'yolo_specialist_datasets/fighter/images/train')) for cls in os.listdir(...)})"` 
-- Rare classes need oversampling or weighted loss
-- Try longer training: `--epochs 100` instead of 50
-- Increase augmentation
-
-### **Issue: Training runs out of memory**
-- Reduce batch size: `--batch-size 16` instead of 32
-- Reduce imgsz: `--imgsz 640` instead of 768
-- Use CPU: `--device cpu`
-
----
-
-## 📚 Reference
-
-- **YOLOv8 Docs**: https://docs.ultralytics.com/
-- **Paper**: "You Only Look Once: Unified, Real-Time Object Detection"
-- **Dataset**: Military aircraft from Kaggle/web sources
-
----
-
-## 📄 License
-MIT License - See LICENSE file
 
 ## 👥 Authors
 Sachin S.
